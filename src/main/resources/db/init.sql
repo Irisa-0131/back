@@ -96,3 +96,35 @@ CREATE TABLE IF NOT EXISTS alarm_record (
 INSERT IGNORE INTO alarm_record (id, alarm_time, alarm_type, alarm_level, alarm_source, alarm_content, is_handled) VALUES
 (1, NOW() - INTERVAL 2 HOUR, 'water_quality', 2, 'COD', 'COD超标：当前值76.42 mg/L，标准值75.00 mg/L', 0),
 (2, NOW() - INTERVAL 1 HOUR, 'device',        1, 'PUMP_04', 'Fecl3投加泵频率反馈异常', 0);
+
+-- ------------------------------------------------------------
+-- 5. 离线模拟任务表
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS simulation_task (
+    id                BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',
+    task_no           VARCHAR(20)  NOT NULL               COMMENT '任务编号',
+    file_name         VARCHAR(200)                        COMMENT '原始文件名',
+    file_path         VARCHAR(500)                        COMMENT '服务器存储路径',
+    data_count        INT                                 COMMENT '数据条数',
+    sample_rate       VARCHAR(20)                         COMMENT '采样频率',
+    missing_rate      DECIMAL(5,2)                        COMMENT '缺失率(%)',
+    time_range        VARCHAR(100)                        COMMENT '数据时间范围',
+    validation_status TINYINT      NOT NULL DEFAULT 0     COMMENT '1=通过 2=失败',
+    validation_msg    VARCHAR(500)                        COMMENT '校验失败原因',
+    is_preprocessed   TINYINT      NOT NULL DEFAULT 0     COMMENT '0=否 1=是',
+    preprocess_config TEXT                                COMMENT 'JSON预处理配置',
+    column_mapping    TEXT                                COMMENT 'JSON列映射关系',
+    operator          VARCHAR(50)                         COMMENT '操作人员',
+    create_time       DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    predict_params    TEXT                                COMMENT 'JSON预测参数',
+    predict_result    MEDIUMTEXT                          COMMENT 'JSON预测结果',
+    predict_time      DATETIME                            COMMENT '最近一次预测时间',
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_task_no (task_no)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='离线模拟任务表';
+
+-- 如果表已存在，手动执行以下 ALTER 补充字段：
+-- ALTER TABLE simulation_task
+--   ADD COLUMN predict_params  TEXT       COMMENT 'JSON预测参数',
+--   ADD COLUMN predict_result  MEDIUMTEXT COMMENT 'JSON预测结果',
+--   ADD COLUMN predict_time    DATETIME   COMMENT '最近一次预测时间';

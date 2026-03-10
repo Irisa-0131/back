@@ -10,6 +10,11 @@ spring:
     username: root
     password: 305417   # 修改为你的 MySQL 密码
 
+  servlet:
+    multipart:
+      max-file-size: 20MB
+      max-request-size: 20MB
+
   jackson:
     date-format: yyyy-MM-dd HH:mm:ss
     time-zone: Asia/Shanghai
@@ -33,6 +38,9 @@ influxdb:
 mock:
   plc:
     excel-path: C:/Users/Administrator/Desktop/XupuSmartDose/backend/监测数据_25.xlsx
+
+simulation:
+  upload-dir: C:/Users/Administrator/Desktop/XupuSmartDose/uploads
 
 logging:
   level:
