@@ -1,0 +1,24 @@
+{
+  "properties": [
+    {
+      "name": "influxdb.url",
+      "type": "java.lang.String",
+      "description": "InfluxDB 连接地址"
+    },
+    {
+      "name": "influxdb.token",
+      "type": "java.lang.String",
+      "description": "InfluxDB API Token"
+    },
+    {
+      "name": "influxdb.org",
+      "type": "java.lang.String",
+      "description": "InfluxDB 组织名"
+    },
+    {
+      "name": "influxdb.bucket",
+      "type": "java.lang.String",
+      "description": "InfluxDB Bucket 名称"
+    }
+  ]
+}

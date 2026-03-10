@@ -1,0 +1,44 @@
+server:
+  port: 8082
+  servlet:
+    context-path: /api
+
+spring:
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://localhost:3306/xupu_smartdose?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai
+    username: root
+    password: 305417   # 修改为你的 MySQL 密码
+
+  jackson:
+    date-format: yyyy-MM-dd HH:mm:ss
+    time-zone: Asia/Shanghai
+
+mybatis-plus:
+  configuration:
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl  # 开发时打印SQL，生产可注释掉
+    map-underscore-to-camel-case: true
+  global-config:
+    db-config:
+      logic-delete-field: deleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+
+influxdb:
+  url: http://localhost:8086
+  token: 9XxXWKVi-4nqb2pMOigdGNsXm8db0ERbUitvyhDFfJf6XOH_wctxXqguyNn_VkqFi4K61HfKFkzt4Qgh7Lp1zA==        # 替换为你的 InfluxDB Token
+  org: i                 # 替换为你的组织名
+  bucket: smartdose             # 替换为你的 bucket 名
+
+mock:
+  plc:
+    excel-path: C:/Users/Administrator/Desktop/XupuSmartDose/backend/监测数据_25.xlsx
+
+logging:
+  level:
+    com.xupu.smartdose: debug
+  charset:
+    console: UTF-8
+    file: UTF-8
+
+  
