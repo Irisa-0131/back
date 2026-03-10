@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.xupu.smartdose.dto.*;
 import com.xupu.smartdose.entity.SimulationTask;
 import com.xupu.smartdose.mapper.SimulationTaskMapper;
+import com.xupu.smartdose.service.ModelInferClient;
 import com.xupu.smartdose.service.SimulationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -35,6 +36,7 @@ public class SimulationServiceImpl implements SimulationService {
 
     private final SimulationTaskMapper simulationTaskMapper;
     private final ObjectMapper objectMapper;
+    private final ModelInferClient modelInferClient;
 
     @Value("${simulation.upload-dir}")
     private String uploadDir;
@@ -377,54 +379,18 @@ public class SimulationServiceImpl implements SimulationService {
         LocalDateTime lastTime  = dataPoints.get(dataPoints.size() - 1).time;
         long stepMinutes        = sampleRateToMinutes(task.getSampleRate());
 
-        List<SimulationPredictResult.IndicatorSeries> seriesList = new ArrayList<>();
-        Random rng = new Random(42);
-
-        for (String indicator : indicatorToCol.keySet()) {
-            SimulationPredictResult.IndicatorSeries s = new SimulationPredictResult.IndicatorSeries();
-            s.setIndicator(indicator);
-
-            // 历史点
-            List<SimulationPredictResult.TimeValue> history = new ArrayList<>();
-            double lastVal = 0, sum = 0; int cnt = 0;
-            for (DataPoint dp : dataPoints) {
-                Double v = dp.values.get(indicator);
-                history.add(new SimulationPredictResult.TimeValue(dp.time.format(fmt), v));
-                if (v != null) { lastVal = v; sum += v; cnt++; }
+        List<SimulationPredictResult.IndicatorSeries> seriesList;
+        if (modelInferClient.isAvailable()) {
+            try {
+                seriesList = buildSeriesViaModelService(
+                        dataPoints, indicatorToCol, predSteps, lastTime, stepMinutes, task.getTaskNo(), fmt);
+                log.debug("模型服务预测完成，taskNo={}", task.getTaskNo());
+            } catch (Exception e) {
+                log.warn("模型服务调用失败，降级为 V1.0 趋势外推: {}", e.getMessage());
+                seriesList = buildSeriesV1(dataPoints, indicatorToCol, predSteps, lastTime, stepMinutes, fmt);
             }
-            s.setHistory(history);
-            double avg = cnt > 0 ? sum / cnt : lastVal;
-
-            // 趋势斜率（最后5点线性斜率 × 衰减系数0.3）
-            double slope = 0;
-            int trendLen = Math.min(5, history.size());
-            if (trendLen >= 2) {
-                double first = 0, last2 = 0;
-                for (int i = history.size() - trendLen; i < history.size(); i++) {
-                    Double v = history.get(i).getValue();
-                    if (v != null) { if (i == history.size() - trendLen) first = v; last2 = v; }
-                }
-                slope = (last2 - first) / trendLen * 0.3;
-            }
-
-            // 预测点
-            List<SimulationPredictResult.TimeValue> predicted = new ArrayList<>();
-            double cur = lastVal;
-            for (int i = 1; i <= predSteps; i++) {
-                cur += slope + (rng.nextDouble() - 0.5) * avg * 0.03;
-                cur = Math.max(0, cur);
-                predicted.add(new SimulationPredictResult.TimeValue(
-                        lastTime.plusMinutes(stepMinutes * i).format(fmt),
-                        Math.round(cur * 100.0) / 100.0));
-            }
-            s.setPredicted(predicted);
-            s.setEndValue(Math.round(cur * 100.0) / 100.0);
-
-            if (slope > avg * 0.005)       s.setTrend("上升");
-            else if (slope < -avg * 0.005) s.setTrend("下降");
-            else                           s.setTrend("平稳");
-
-            seriesList.add(s);
+        } else {
+            seriesList = buildSeriesV1(dataPoints, indicatorToCol, predSteps, lastTime, stepMinutes, fmt);
         }
 
         SimulationPredictResult result = new SimulationPredictResult();
@@ -462,6 +428,147 @@ public class SimulationServiceImpl implements SimulationService {
         } catch (Exception e) {
             throw new RuntimeException("预测结果解析失败：" + e.getMessage());
         }
+    }
+
+    // =========== 预测序列构建 ===========
+
+    /** V1.0：最后5点线性趋势外推 + 衰减系数0.3 + 3%随机扰动 */
+    private List<SimulationPredictResult.IndicatorSeries> buildSeriesV1(
+            List<DataPoint> dataPoints, Map<String, String> indicatorToCol,
+            int predSteps, LocalDateTime lastTime, long stepMinutes,
+            DateTimeFormatter fmt) {
+        List<SimulationPredictResult.IndicatorSeries> seriesList = new ArrayList<>();
+        Random rng = new Random(42);
+        for (String indicator : indicatorToCol.keySet()) {
+            SimulationPredictResult.IndicatorSeries s = new SimulationPredictResult.IndicatorSeries();
+            s.setIndicator(indicator);
+
+            List<SimulationPredictResult.TimeValue> history = new ArrayList<>();
+            double lastVal = 0, sum = 0; int cnt = 0;
+            for (DataPoint dp : dataPoints) {
+                Double v = dp.values.get(indicator);
+                history.add(new SimulationPredictResult.TimeValue(dp.time.format(fmt), v));
+                if (v != null) { lastVal = v; sum += v; cnt++; }
+            }
+            s.setHistory(history);
+            double avg = cnt > 0 ? sum / cnt : lastVal;
+
+            double slope = 0;
+            int trendLen = Math.min(5, history.size());
+            if (trendLen >= 2) {
+                double first = 0, last2 = 0;
+                for (int i = history.size() - trendLen; i < history.size(); i++) {
+                    Double v = history.get(i).getValue();
+                    if (v != null) { if (i == history.size() - trendLen) first = v; last2 = v; }
+                }
+                slope = (last2 - first) / trendLen * 0.3;
+            }
+
+            List<SimulationPredictResult.TimeValue> predicted = new ArrayList<>();
+            double cur = lastVal;
+            for (int i = 1; i <= predSteps; i++) {
+                cur += slope + (rng.nextDouble() - 0.5) * avg * 0.03;
+                cur = Math.max(0, cur);
+                predicted.add(new SimulationPredictResult.TimeValue(
+                        lastTime.plusMinutes(stepMinutes * i).format(fmt),
+                        Math.round(cur * 100.0) / 100.0));
+            }
+            s.setPredicted(predicted);
+            s.setEndValue(Math.round(cur * 100.0) / 100.0);
+
+            if (slope > avg * 0.005)       s.setTrend("上升");
+            else if (slope < -avg * 0.005) s.setTrend("下降");
+            else                           s.setTrend("平稳");
+            seriesList.add(s);
+        }
+        return seriesList;
+    }
+
+    /** 调用 Python 模型服务，将响应映射为 IndicatorSeries 列表 */
+    private List<SimulationPredictResult.IndicatorSeries> buildSeriesViaModelService(
+            List<DataPoint> dataPoints, Map<String, String> indicatorToCol,
+            int predSteps, LocalDateTime lastTime, long stepMinutes,
+            String taskNo, DateTimeFormatter fmt) {
+        List<String> indicators = new ArrayList<>(indicatorToCol.keySet());
+
+        // 构建历史窗口矩阵 [T, K]
+        List<String> timestamps = new ArrayList<>();
+        List<List<Double>> xMatrix = new ArrayList<>();
+        for (DataPoint dp : dataPoints) {
+            timestamps.add(dp.time.format(fmt));
+            List<Double> row = new ArrayList<>();
+            for (String ind : indicators) row.add(dp.values.get(ind));
+            xMatrix.add(row);
+        }
+
+        // 计算各指标均值/标准差供模型服务归一化
+        List<Double> means = new ArrayList<>(), stds = new ArrayList<>();
+        for (String ind : indicators) {
+            List<Double> vals = dataPoints.stream()
+                    .map(dp -> dp.values.get(ind)).filter(Objects::nonNull).collect(Collectors.toList());
+            double mean = vals.isEmpty() ? 0 : vals.stream().mapToDouble(Double::doubleValue).average().orElse(0);
+            double variance = vals.size() < 2 ? 1 : vals.stream()
+                    .mapToDouble(v -> (v - mean) * (v - mean)).average().orElse(1);
+            means.add(mean);
+            stds.add(variance == 0 ? 1 : Math.sqrt(variance));
+        }
+        ModelInferRequest.NormalizeParams norm = new ModelInferRequest.NormalizeParams();
+        norm.setMean(means);
+        norm.setStd(stds);
+
+        ModelInferRequest.PredictWindow window = new ModelInferRequest.PredictWindow();
+        window.setTimestamps(timestamps);
+        window.setX(xMatrix);
+
+        ModelInferRequest inferReq = new ModelInferRequest();
+        inferReq.setTaskId(taskNo);
+        inferReq.setHorizonSteps(predSteps);
+        inferReq.setStepSeconds((int)(stepMinutes * 60));
+        inferReq.setTargets(indicators);
+        inferReq.setWindow(window);
+        inferReq.setNormalize(norm);
+
+        ModelInferResponse resp = modelInferClient.infer(inferReq);
+
+        // 映射响应为 IndicatorSeries
+        List<SimulationPredictResult.IndicatorSeries> seriesList = new ArrayList<>();
+        for (String indicator : indicators) {
+            SimulationPredictResult.IndicatorSeries s = new SimulationPredictResult.IndicatorSeries();
+            s.setIndicator(indicator);
+
+            List<SimulationPredictResult.TimeValue> history = new ArrayList<>();
+            double lastVal = 0, sum = 0; int cnt = 0;
+            for (DataPoint dp : dataPoints) {
+                Double v = dp.values.get(indicator);
+                history.add(new SimulationPredictResult.TimeValue(dp.time.format(fmt), v));
+                if (v != null) { lastVal = v; sum += v; cnt++; }
+            }
+            s.setHistory(history);
+
+            List<Double> predVals  = resp.getPred() != null ? resp.getPred().get(indicator) : null;
+            List<String> predTimes = resp.getPredTimestamps();
+            List<SimulationPredictResult.TimeValue> predicted = new ArrayList<>();
+            double endVal = lastVal;
+            if (predVals != null && predTimes != null) {
+                for (int i = 0; i < Math.min(predVals.size(), predTimes.size()); i++) {
+                    double v = Math.max(0, Math.round(predVals.get(i) * 100.0) / 100.0);
+                    predicted.add(new SimulationPredictResult.TimeValue(predTimes.get(i), v));
+                    endVal = v;
+                }
+            }
+            s.setPredicted(predicted);
+            s.setEndValue(Math.round(endVal * 100.0) / 100.0);
+
+            double avg = cnt > 0 ? sum / cnt : lastVal;
+            double delta = endVal - lastVal;
+            if (delta > avg * 0.005)       s.setTrend("上升");
+            else if (delta < -avg * 0.005) s.setTrend("下降");
+            else                           s.setTrend("平稳");
+
+            log.debug("模型服务预测 indicator={} modelVersion={}", indicator, resp.getModelVersion());
+            seriesList.add(s);
+        }
+        return seriesList;
     }
 
     // =========== 预处理管道 ===========

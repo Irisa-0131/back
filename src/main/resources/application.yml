@@ -42,6 +42,12 @@ mock:
 simulation:
   upload-dir: C:/Users/Administrator/Desktop/XupuSmartDose/uploads
 
+# 模型推理服务（Python FastAPI）
+# 启动后取消注释 url，即可启用模型服务；不配置则自动降级为 V1.0 趋势外推
+model-service:
+  url: http://localhost:8090   # 取消注释并填写地址以启用
+  timeout-ms: 5000             # 请求超时（毫秒）
+
 logging:
   level:
     com.xupu.smartdose: debug

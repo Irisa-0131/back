@@ -1,24 +1,15 @@
 {
   "properties": [
     {
-      "name": "influxdb.url",
+      "name": "model-service.url",
       "type": "java.lang.String",
-      "description": "InfluxDB 连接地址"
+      "description": "Python 模型推理服务地址，如 http://localhost:8090。不配置时自动降级为 V1.0 趋势外推。"
     },
     {
-      "name": "influxdb.token",
-      "type": "java.lang.String",
-      "description": "InfluxDB API Token"
-    },
-    {
-      "name": "influxdb.org",
-      "type": "java.lang.String",
-      "description": "InfluxDB 组织名"
-    },
-    {
-      "name": "influxdb.bucket",
-      "type": "java.lang.String",
-      "description": "InfluxDB Bucket 名称"
+      "name": "model-service.timeout-ms",
+      "type": "java.lang.Integer",
+      "description": "模型服务 HTTP 请求超时（毫秒），默认 5000。",
+      "defaultValue": 5000
     }
   ]
 }
