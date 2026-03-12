@@ -68,6 +68,7 @@ public class PlcPollingService {
         if (record.getTp()   != null) point.addField("tp",   record.getTp().doubleValue());
         if (record.getTn()   != null) point.addField("tn",   record.getTn().doubleValue());
         if (record.getFlow() != null) point.addField("flow", record.getFlow().doubleValue());
+        if (record.getPh()   != null) point.addField("ph",   record.getPh().doubleValue());
 
         WriteApiBlocking writeApi = influxDBClient.getWriteApiBlocking();
         writeApi.writePoint(bucket, influxOrg, point);

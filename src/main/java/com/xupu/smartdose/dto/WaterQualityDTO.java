@@ -25,6 +25,7 @@ public class WaterQualityDTO {
         private BigDecimal tp;
         private BigDecimal tn;
         private BigDecimal flow;
+        private BigDecimal ph;
         private LocalDateTime recordTime;
 
         /** 较标准值差值（正=低于标准/绿色，负=超标/红色） */

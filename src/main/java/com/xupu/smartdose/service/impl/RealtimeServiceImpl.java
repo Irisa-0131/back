@@ -4,7 +4,13 @@ import com.influxdb.client.InfluxDBClient;
 import com.influxdb.client.QueryApi;
 import com.influxdb.query.FluxRecord;
 import com.influxdb.query.FluxTable;
+import com.xupu.smartdose.dto.WaterOverviewDTO;
 import com.xupu.smartdose.dto.WaterQualityDTO;
+import com.xupu.smartdose.dto.WaterStandardDTO;
+import com.xupu.smartdose.entity.SystemConfig;
+import com.xupu.smartdose.entity.WaterQualityRecord;
+import com.xupu.smartdose.mapper.SystemConfigMapper;
+import com.xupu.smartdose.plc.PlcDataService;
 import com.xupu.smartdose.service.RealtimeService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
@@ -27,12 +33,14 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class RealtimeServiceImpl implements RealtimeService {
 
-    private static final BigDecimal STANDARD_NH3N = new BigDecimal("5.00");
-    private static final BigDecimal STANDARD_COD  = new BigDecimal("75.00");
-    private static final BigDecimal STANDARD_TP   = new BigDecimal("0.50");
-    private static final BigDecimal STANDARD_TN   = new BigDecimal("15.00");
+    private static final String KEY_STD_NH3N = "standard_nh3n_max";
+    private static final String KEY_STD_COD  = "standard_cod_max";
+    private static final String KEY_STD_TP   = "standard_tp_max";
+    private static final String KEY_STD_TN   = "standard_tn_max";
 
-    private final InfluxDBClient influxDBClient;
+    private final InfluxDBClient    influxDBClient;
+    private final PlcDataService    plcDataService;
+    private final SystemConfigMapper systemConfigMapper;
 
     @Value("${influxdb.bucket}")
     private String bucket;
@@ -52,7 +60,7 @@ public class RealtimeServiceImpl implements RealtimeService {
                   |> filter(fn: (r) => r._measurement == "water_quality")
                   |> filter(fn: (r) => r.water_type == "out")
                   |> filter(fn: (r) => r.is_predicted == "false")
-                  |> filter(fn: (r) => r._field == "nh3n" or r._field == "cod" or r._field == "tp" or r._field == "tn" or r._field == "flow")
+                  |> filter(fn: (r) => r._field == "nh3n" or r._field == "cod" or r._field == "tp" or r._field == "tn" or r._field == "flow" or r._field == "ph")
                   |> last()
                   |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
                 """, bucket);
@@ -68,15 +76,20 @@ public class RealtimeServiceImpl implements RealtimeService {
             lv.setTp(toBigDecimal(record.getValueByKey("tp")));
             lv.setTn(toBigDecimal(record.getValueByKey("tn")));
             lv.setFlow(toBigDecimal(record.getValueByKey("flow")));
+            lv.setPh(toBigDecimal(record.getValueByKey("ph")));
             if (record.getTime() != null) {
                 LocalDateTime t = LocalDateTime.ofInstant(record.getTime(), ZoneId.systemDefault());
                 lv.setRecordTime(t);
                 dataDay = t;  // 以最新数据的时间作为图表基准
             }
-            lv.setNh3nDiff(lv.getNh3n() != null ? STANDARD_NH3N.subtract(lv.getNh3n()) : null);
-            lv.setCodDiff(lv.getCod()   != null ? STANDARD_COD.subtract(lv.getCod())   : null);
-            lv.setTpDiff(lv.getTp()     != null ? STANDARD_TP.subtract(lv.getTp())     : null);
-            lv.setTnDiff(lv.getTn()     != null ? STANDARD_TN.subtract(lv.getTn())     : null);
+            BigDecimal stdNh3n = getCfgDecimal(KEY_STD_NH3N, "5.00");
+            BigDecimal stdCod  = getCfgDecimal(KEY_STD_COD,  "75.00");
+            BigDecimal stdTp   = getCfgDecimal(KEY_STD_TP,   "0.50");
+            BigDecimal stdTn   = getCfgDecimal(KEY_STD_TN,   "15.00");
+            lv.setNh3nDiff(lv.getNh3n() != null ? stdNh3n.subtract(lv.getNh3n()) : null);
+            lv.setCodDiff(lv.getCod()   != null ? stdCod.subtract(lv.getCod())   : null);
+            lv.setTpDiff(lv.getTp()     != null ? stdTp.subtract(lv.getTp())     : null);
+            lv.setTnDiff(lv.getTn()     != null ? stdTn.subtract(lv.getTn())     : null);
 
             // 查最近 6 条读数，用于卡片折线图（tail 按时间升序，最新在末尾）
             String historyFlux = String.format("""
@@ -244,12 +257,82 @@ public class RealtimeServiceImpl implements RealtimeService {
         return chart;
     }
 
+    @Override
+    public WaterOverviewDTO getWaterOverview() {
+        WaterOverviewDTO dto = new WaterOverviewDTO();
+        try {
+            WaterQualityRecord inRecord  = plcDataService.readWaterQuality(0);
+            WaterQualityRecord outRecord = plcDataService.readWaterQuality(1);
+            dto.setInWater(toWaterInfo("实时进水监测", inRecord));
+            dto.setOutWater(toWaterInfo("实时出水监测", outRecord));
+        } catch (Exception e) {
+            // PLC 不可用时返回空结构，前端显示 "--"
+            dto.setInWater(new WaterOverviewDTO.WaterInfo());
+            dto.setOutWater(new WaterOverviewDTO.WaterInfo());
+        }
+        return dto;
+    }
+
+    private WaterOverviewDTO.WaterInfo toWaterInfo(String title, WaterQualityRecord r) {
+        WaterOverviewDTO.WaterInfo info = new WaterOverviewDTO.WaterInfo();
+        info.setTitle(title);
+        if (r != null) {
+            info.setFlow(r.getFlow());
+            info.setNh3n(r.getNh3n());
+            info.setCod(r.getCod());
+            info.setTn(r.getTn());
+            info.setTp(r.getTp());
+            // pH 传感器暂未接入，保留字段返回 null
+            info.setPh(null);
+        }
+        return info;
+    }
+
     private BigDecimal toBigDecimal(Object value) {
         if (value == null) return null;
         try {
             return new BigDecimal(value.toString());
         } catch (NumberFormatException e) {
             return null;
+        }
+    }
+
+    // ── 标准值 ────────────────────────────────────────────────
+
+    @Override
+    public WaterStandardDTO getWaterStandards() {
+        WaterStandardDTO dto = new WaterStandardDTO();
+        dto.setNh3nMax(getCfgDecimal(KEY_STD_NH3N, "5.00"));
+        dto.setCodMax(getCfgDecimal(KEY_STD_COD,   "75.00"));
+        dto.setTpMax(getCfgDecimal(KEY_STD_TP,     "0.50"));
+        dto.setTnMax(getCfgDecimal(KEY_STD_TN,     "15.00"));
+        return dto;
+    }
+
+    @Override
+    public void saveWaterStandards(WaterStandardDTO dto) {
+        upsertCfg(KEY_STD_NH3N, dto.getNh3nMax().toPlainString());
+        upsertCfg(KEY_STD_COD,  dto.getCodMax().toPlainString());
+        upsertCfg(KEY_STD_TP,   dto.getTpMax().toPlainString());
+        upsertCfg(KEY_STD_TN,   dto.getTnMax().toPlainString());
+    }
+
+    private BigDecimal getCfgDecimal(String key, String defaultVal) {
+        SystemConfig cfg = systemConfigMapper.selectById(key);
+        String val = (cfg != null && cfg.getConfigValue() != null) ? cfg.getConfigValue() : defaultVal;
+        try { return new BigDecimal(val); } catch (NumberFormatException e) { return new BigDecimal(defaultVal); }
+    }
+
+    private void upsertCfg(String key, String value) {
+        SystemConfig cfg = systemConfigMapper.selectById(key);
+        if (cfg == null) {
+            cfg = new SystemConfig();
+            cfg.setConfigKey(key);
+            cfg.setConfigValue(value);
+            systemConfigMapper.insert(cfg);
+        } else {
+            cfg.setConfigValue(value);
+            systemConfigMapper.updateById(cfg);
         }
     }
 }

@@ -34,6 +34,10 @@ public class WaterQualityRecord {
     /** 流量 (m³/d) */
     private BigDecimal flow;
 
+    /** pH */
+    @TableField(exist = false)
+    private BigDecimal ph;
+
     /** 水质类型：0=进水 1=出水 */
     private Integer waterType;
 

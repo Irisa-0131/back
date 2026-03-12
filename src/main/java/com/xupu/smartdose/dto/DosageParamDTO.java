@@ -39,4 +39,11 @@ public class DosageParamDTO {
     private BigDecimal pamPosLow;
     private BigDecimal pamPosScale;
     private BigDecimal pamPosRatio;
+
+    // 泵标定系数（L/h/Hz），各药剂对应泵的流量-频率线性系数
+    private BigDecimal tyFlowCoeff;
+    private BigDecimal pacFlowCoeff;
+    private BigDecimal fecl3FlowCoeff;
+    private BigDecimal pamNegFlowCoeff;
+    private BigDecimal pamPosFlowCoeff;
 }

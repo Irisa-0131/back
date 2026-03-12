@@ -39,4 +39,11 @@ public class PumpStatus {
 
     @TableField(fill = FieldFill.INSERT_UPDATE)
     private LocalDateTime updateTime;
+
+    /**
+     * 待执行指令（不持久化到数据库）：
+     * "START" = 启泵延时倒计时中，"STOP" = 停泵延时倒计时中，null = 无待执行任务
+     */
+    @TableField(exist = false)
+    private String pendingCommand;
 }

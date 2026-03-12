@@ -33,6 +33,9 @@ public class AlarmRecord {
     /** 是否已处理：0=未处理 1=已处理 */
     private Integer isHandled;
 
+    /** 处理人 */
+    private String handledBy;
+
     /** 处理时间 */
     private LocalDateTime handleTime;
 

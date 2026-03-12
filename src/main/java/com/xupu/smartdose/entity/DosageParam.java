@@ -33,6 +33,9 @@ public class DosageParam {
     /** 加药系数 */
     private BigDecimal dosingCoefficient;
 
+    /** 泵标定系数（L/h/Hz）：推荐流量 ÷ 此系数 = 推荐运行频率 */
+    private BigDecimal flowCoefficient;
+
     @TableField(fill = FieldFill.INSERT_UPDATE)
     private LocalDateTime updateTime;
 }

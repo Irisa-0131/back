@@ -33,4 +33,11 @@ public class DosageRecommendationDTO {
 
     /** 预测值对应的时间标签（如"10日 14:00"） */
     private String basedOnTime;
+
+    /** 各药剂推荐运行频率（Hz），由推荐流量÷泵标定系数计算，null 表示标定系数未配置 */
+    private BigDecimal tyHz;
+    private BigDecimal pacHz;
+    private BigDecimal fecl3Hz;
+    private BigDecimal pamNegHz;
+    private BigDecimal pamPosHz;
 }

@@ -2,6 +2,7 @@ package com.xupu.smartdose.controller;
 
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.xupu.smartdose.common.Result;
+import com.xupu.smartdose.dto.AlarmConfigDTO;
 import com.xupu.smartdose.entity.AlarmRecord;
 import com.xupu.smartdose.service.AlarmService;
 import lombok.Data;
@@ -43,13 +44,33 @@ public class AlarmController {
      */
     @PutMapping("/handle")
     public Result<Void> handle(@RequestBody HandleRequest req) {
-        alarmService.handleAlarm(req.getAlarmId(), req.getNote());
+        alarmService.handleAlarm(req.getAlarmId(), req.getHandledBy(), req.getNote());
+        return Result.success();
+    }
+
+    /**
+     * GET /api/alarm/config
+     * 获取报警配置
+     */
+    @GetMapping("/config")
+    public Result<AlarmConfigDTO> getConfig() {
+        return Result.success(alarmService.getAlarmConfig());
+    }
+
+    /**
+     * PUT /api/alarm/config
+     * 保存报警配置
+     */
+    @PutMapping("/config")
+    public Result<Void> saveConfig(@RequestBody AlarmConfigDTO dto) {
+        alarmService.saveAlarmConfig(dto);
         return Result.success();
     }
 
     @Data
     public static class HandleRequest {
         private Long alarmId;
+        private String handledBy;
         private String note;
     }
 }

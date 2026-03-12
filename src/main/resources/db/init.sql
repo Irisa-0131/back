@@ -66,12 +66,20 @@ CREATE TABLE IF NOT EXISTS pump_status (
 
 -- 初始泵数据
 INSERT IGNORE INTO pump_status (pump_code, pump_name, remote_mode, auto_mode, run_status, fault_status, frequency) VALUES
-('PUMP_01', '碳源投加泵A', 1, 1, 1, 0, 35.0),
-('PUMP_02', '碳源投加泵B', 1, 1, 0, 0, 0.0),
-('PUMP_03', 'PAC投加泵',   1, 1, 1, 0, 42.5),
-('PUMP_04', 'Fecl3投加泵', 1, 1, 0, 0, 0.0),
-('PUMP_05', 'PAM-投加泵',  1, 1, 1, 0, 30.0),
-('PUMP_06', 'PAM+投加泵',  1, 1, 0, 0, 0.0);
+('PUMP_01',  '碳源投加泵A', 1, 1, 1, 0, 35.0),
+('PUMP_02',  '碳源投加泵B', 1, 1, 0, 0,  0.0),
+('PUMP_03',  'PAC投加泵',   1, 1, 1, 0, 42.5),
+('PUMP_04',  'Fecl3投加泵', 1, 1, 0, 0,  0.0),
+('PUMP_05',  'PAM-投加泵',  1, 1, 1, 0, 30.0),
+('PUMP_06',  'PAM+投加泵',  1, 1, 0, 0,  0.0),
+('PUMP_07',  '投加泵07',    1, 1, 1, 0, 38.0),
+('PUMP_08',  '投加泵08',    1, 1, 1, 0, 38.0),
+('PUMP_09',  '投加泵09',    1, 1, 0, 0,  0.0),
+('PUMP_10',  '投加泵10',    1, 1, 1, 0, 32.0),
+('PUMP_11',  '投加泵11',    1, 1, 1, 0, 40.0),
+('PUMP_12',  '投加泵12',    1, 1, 0, 0,  0.0),
+('PUMP_13',  '投加泵13',    1, 1, 1, 0, 28.0),
+('PUMP_14',  '投加泵14',    1, 1, 1, 0, 28.0);
 
 -- ------------------------------------------------------------
 -- 4. 报警记录表
@@ -84,6 +92,7 @@ CREATE TABLE IF NOT EXISTS alarm_record (
     alarm_source  VARCHAR(50)                         COMMENT '报警来源 如NH3-N/PUMP_01',
     alarm_content VARCHAR(500)                        COMMENT '报警内容',
     is_handled    TINYINT      NOT NULL DEFAULT 0     COMMENT '0=未处理 1=已处理',
+    handled_by    VARCHAR(50)                         COMMENT '处理人',
     handle_time   DATETIME                            COMMENT '处理时间',
     handle_note   VARCHAR(200)                        COMMENT '处理备注',
     create_time   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -91,6 +100,9 @@ CREATE TABLE IF NOT EXISTS alarm_record (
     INDEX idx_alarm_time  (alarm_time),
     INDEX idx_is_handled  (is_handled)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='报警记录表';
+
+-- 已存在的数据库补充 handled_by 列（若列已存在则忽略错误）
+ALTER TABLE alarm_record ADD COLUMN IF NOT EXISTS handled_by VARCHAR(50) COMMENT '处理人' AFTER is_handled;
 
 -- 模拟几条报警记录（测试用）
 INSERT IGNORE INTO alarm_record (id, alarm_time, alarm_type, alarm_level, alarm_source, alarm_content, is_handled) VALUES
@@ -128,3 +140,15 @@ CREATE TABLE IF NOT EXISTS simulation_task (
 --   ADD COLUMN predict_params  TEXT       COMMENT 'JSON预测参数',
 --   ADD COLUMN predict_result  MEDIUMTEXT COMMENT 'JSON预测结果',
 --   ADD COLUMN predict_time    DATETIME   COMMENT '最近一次预测时间';
+
+-- ------------------------------------------------------------
+-- 6. 系统配置表（通用 key-value，当前用于存储运行模式）
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS system_config (
+    config_key   VARCHAR(50)  NOT NULL COMMENT '配置项键',
+    config_value VARCHAR(200)          COMMENT '配置项值',
+    PRIMARY KEY (config_key)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='系统配置表';
+
+-- 初始运行模式：自动模式
+INSERT IGNORE INTO system_config (config_key, config_value) VALUES ('run_mode', 'auto');
