@@ -94,7 +94,11 @@ public class PumpServiceImpl implements PumpService {
             int delayMinutes = getDelayConfig(START_DELAY_KEY, 10);
             log.info("收到启泵指令 -> 泵:{} 延时:{}分钟后执行", pumpCode, delayMinutes);
             pumpDelayScheduler.schedule(pumpCode, delayMinutes, "START", () -> {
-                plcDataService.writePumpCommand(pumpCode, "START");
+                try {
+                    plcDataService.writePumpCommand(pumpCode, "START");
+                } catch (Exception ex) {
+                    log.warn("START命令PLC写入失败，仍更新数据库状态 -> 泵:{} 原因:{}", pumpCode, ex.getMessage());
+                }
                 PumpStatus s = pumpStatusMapper.selectByPumpCode(pumpCode);
                 if (s != null) {
                     s.setRunStatus(1);
@@ -110,7 +114,11 @@ public class PumpServiceImpl implements PumpService {
             int delayMinutes = getDelayConfig(STOP_DELAY_KEY, 30);
             log.info("收到停泵指令 -> 泵:{} 延时:{}分钟后执行", pumpCode, delayMinutes);
             pumpDelayScheduler.schedule(pumpCode, delayMinutes, "STOP", () -> {
-                plcDataService.writePumpCommand(pumpCode, "STOP");
+                try {
+                    plcDataService.writePumpCommand(pumpCode, "STOP");
+                } catch (Exception ex) {
+                    log.warn("STOP命令PLC写入失败，仍更新数据库状态 -> 泵:{} 原因:{}", pumpCode, ex.getMessage());
+                }
                 PumpStatus s = pumpStatusMapper.selectByPumpCode(pumpCode);
                 if (s != null) {
                     s.setRunStatus(0);

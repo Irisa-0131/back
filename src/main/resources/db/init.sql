@@ -152,3 +152,22 @@ CREATE TABLE IF NOT EXISTS system_config (
 
 -- 初始运行模式：自动模式
 INSERT IGNORE INTO system_config (config_key, config_value) VALUES ('run_mode', 'auto');
+
+-- ------------------------------------------------------------
+-- 7. 系统用户表
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS sys_user (
+    id          INT          NOT NULL AUTO_INCREMENT COMMENT '主键',
+    username    VARCHAR(50)  NOT NULL               COMMENT '用户名',
+    password    VARCHAR(64)  NOT NULL               COMMENT '密码（MD5）',
+    nickname    VARCHAR(50)                         COMMENT '昵称',
+    enabled     TINYINT      NOT NULL DEFAULT 1     COMMENT '0=禁用 1=启用',
+    create_time DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    update_time DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_username (username)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='系统用户表';
+
+-- 默认管理员账号：admin / admin123  (MD5: 0192023a7bbd73250516f069df18b500)
+INSERT IGNORE INTO sys_user (username, password, nickname, enabled) VALUES
+('admin', '0192023a7bbd73250516f069df18b500', '管理员', 1);

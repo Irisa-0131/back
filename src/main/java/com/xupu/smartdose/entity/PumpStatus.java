@@ -37,6 +37,10 @@ public class PumpStatus {
     /** 运行频率 (Hz) */
     private BigDecimal frequency;
 
+    /** 实时流量 (L/h)，由 PLC 读取或根据频率估算，不持久化 */
+    @TableField(exist = false)
+    private BigDecimal flow;
+
     @TableField(fill = FieldFill.INSERT_UPDATE)
     private LocalDateTime updateTime;
 

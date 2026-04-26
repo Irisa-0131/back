@@ -13,22 +13,26 @@ import com.xupu.smartdose.mapper.SystemConfigMapper;
 import com.xupu.smartdose.plc.PlcDataService;
 import com.xupu.smartdose.service.RealtimeService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
-import java.time.LocalDate;
+import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 
 /**
  * 出水水质标准值（mg/L）——超出为红色
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class RealtimeServiceImpl implements RealtimeService {
@@ -46,7 +50,7 @@ public class RealtimeServiceImpl implements RealtimeService {
     private String bucket;
 
     @Value("${influxdb.org}")
-    private String org;
+    private String influxOrg;
 
     @Override
     public WaterQualityDTO getOutWaterData() {
@@ -67,7 +71,7 @@ public class RealtimeServiceImpl implements RealtimeService {
 
         LocalDateTime dataDay = null;   // 最新数据所在的日期，用于图表基准
 
-        List<FluxTable> latestTables = queryApi.query(latestFlux, org);
+        List<FluxTable> latestTables = queryApi.query(latestFlux, influxOrg);
         if (!latestTables.isEmpty() && !latestTables.get(0).getRecords().isEmpty()) {
             FluxRecord record = latestTables.get(0).getRecords().get(0);
             WaterQualityDTO.LatestValues lv = new WaterQualityDTO.LatestValues();
@@ -103,7 +107,7 @@ public class RealtimeServiceImpl implements RealtimeService {
                     """, bucket);
 
             Map<String, List<BigDecimal>> historyMap = new HashMap<>();
-            for (FluxTable t : queryApi.query(historyFlux, org)) {
+            for (FluxTable t : queryApi.query(historyFlux, influxOrg)) {
                 for (FluxRecord r : t.getRecords()) {
                     String field = r.getField();
                     if (field == null) continue;
@@ -141,7 +145,7 @@ public class RealtimeServiceImpl implements RealtimeService {
         Map<Integer, BigDecimal> actualMap    = new HashMap<>();
         Map<Integer, BigDecimal> predictedMap = new HashMap<>();
 
-        List<FluxTable> chartTables = queryApi.query(chartFlux, org);
+        List<FluxTable> chartTables = queryApi.query(chartFlux, influxOrg);
         for (FluxTable table : chartTables) {
             String isPredicted = (String) table.getRecords().stream()
                     .findFirst().map(r -> r.getValueByKey("is_predicted")).orElse("false");
@@ -184,77 +188,18 @@ public class RealtimeServiceImpl implements RealtimeService {
     }
 
     @Override
-    public WaterQualityDTO.ChartData getChartData(String param, LocalDateTime startTime, LocalDateTime endTime) {
+    public WaterQualityDTO.ChartData getChartData(String param, int predHours) {
         // 参数名 -> InfluxDB field 名映射
         String field = switch (param == null ? "" : param.toLowerCase().replace("-", "")) {
-            case "cod"  -> "cod";
-            case "tp"   -> "tp";
-            case "tn"   -> "tn";
-            default     -> "nh3n";
+            case "cod" -> "cod";
+            case "tp"  -> "tp";
+            case "tn"  -> "tn";
+            default    -> "nh3n";
         };
 
-        LocalDateTime now      = LocalDateTime.now();
-        LocalDateTime rangeStart = (startTime != null) ? startTime : now.toLocalDate().atStartOfDay();
-        LocalDateTime rangeEnd   = (endTime   != null) ? endTime   : now.toLocalDate().atTime(23, 59, 59);
+        // TODO: InfluxDB 就绪后删除此行，启用下方真实查询逻辑
+        return buildMockChartData(field, predHours);
 
-        QueryApi queryApi = influxDBClient.getQueryApi();
-
-        String chartFlux = String.format("""
-                from(bucket: "%s")
-                  |> range(start: %s, stop: %s)
-                  |> filter(fn: (r) => r._measurement == "water_quality")
-                  |> filter(fn: (r) => r.water_type == "out")
-                  |> filter(fn: (r) => r._field == "%s")
-                  |> aggregateWindow(every: 1h, fn: mean, createEmpty: false)
-                """, bucket,
-                rangeStart.atZone(ZoneId.systemDefault()).toInstant(),
-                rangeEnd.atZone(ZoneId.systemDefault()).toInstant(),
-                field);
-
-        Map<Integer, BigDecimal> actualMap    = new HashMap<>();
-        Map<Integer, BigDecimal> predictedMap = new HashMap<>();
-
-        for (FluxTable table : queryApi.query(chartFlux, org)) {
-            String isPredicted = (String) table.getRecords().stream()
-                    .findFirst().map(r -> r.getValueByKey("is_predicted")).orElse("false");
-            for (FluxRecord r : table.getRecords()) {
-                if (r.getTime() == null) continue;
-                int hour = LocalDateTime.ofInstant(r.getTime(), ZoneId.systemDefault()).getHour();
-                BigDecimal val = toBigDecimal(r.getValue());
-                if ("true".equals(isPredicted)) {
-                    predictedMap.put(hour, val);
-                } else {
-                    actualMap.put(hour, val);
-                }
-            }
-        }
-
-        // 以 rangeStart 当天为基准构造时间轴（0~24h）
-        LocalDateTime dayStart    = rangeStart.toLocalDate().atStartOfDay();
-        int           currentHour = now.getHour();
-        DateTimeFormatter labelFmt = DateTimeFormatter.ofPattern("d日 HH:mm");
-
-        List<String>     timeLabels = new ArrayList<>();
-        List<BigDecimal> actual     = new ArrayList<>();
-        List<BigDecimal> predicted  = new ArrayList<>();
-
-        for (int h = 0; h <= 24; h++) {
-            timeLabels.add(dayStart.plusHours(h).format(labelFmt));
-            if (h <= currentHour) {
-                actual.add(actualMap.get(h % 24));
-                predicted.add(h == currentHour ? predictedMap.get(h % 24) : null);
-            } else {
-                actual.add(null);
-                predicted.add(predictedMap.get(h % 24));
-            }
-        }
-
-        WaterQualityDTO.ChartData chart = new WaterQualityDTO.ChartData();
-        chart.setTimeLabels(timeLabels);
-        chart.setActualData(actual);
-        chart.setPredictedData(predicted);
-        chart.setCurrentTimeLabel(now.format(labelFmt));
-        return chart;
     }
 
     @Override
@@ -282,8 +227,7 @@ public class RealtimeServiceImpl implements RealtimeService {
             info.setCod(r.getCod());
             info.setTn(r.getTn());
             info.setTp(r.getTp());
-            // pH 传感器暂未接入，保留字段返回 null
-            info.setPh(null);
+            info.setPh(r.getPh());
         }
         return info;
     }
@@ -334,5 +278,63 @@ public class RealtimeServiceImpl implements RealtimeService {
             cfg.setConfigValue(value);
             systemConfigMapper.updateById(cfg);
         }
+    }
+
+    /**
+     * InfluxDB 不可用或无数据时，生成模拟图表数据。
+     * 实测区：正弦波叠加随机噪声，模拟真实水质日变化规律。
+     * 预测区：在实测末值基础上小幅趋势延伸，体现预测不确定性。
+     */
+    private WaterQualityDTO.ChartData buildMockChartData(String field, int predHours) {
+        // 各指标 [基准值, 日变化幅度]
+        double[] cfg = switch (field) {
+            case "cod" -> new double[]{62.0, 12.0};
+            case "tp"  -> new double[]{ 0.22,  0.06};
+            case "tn"  -> new double[]{11.5,   1.8};
+            default    -> new double[]{ 0.85,  0.20}; // nh3n
+        };
+        double base = cfg[0], amp = cfg[1];
+
+        LocalDateTime now         = LocalDateTime.now().truncatedTo(ChronoUnit.HOURS);
+        int           actualHours = 24 - predHours;
+        LocalDateTime actualStart = now.minusHours(actualHours);
+
+        // 用当天日期作为随机种子，保证同一天内刷新数据连续一致
+        Random rng = new Random((long) now.getDayOfYear() * 100 + now.getHour());
+
+        DateTimeFormatter labelFmt = DateTimeFormatter.ofPattern("d日 HH:mm");
+        List<String>     timeLabels = new ArrayList<>();
+        List<BigDecimal> actual     = new ArrayList<>();
+        List<BigDecimal> predicted  = new ArrayList<>();
+
+        double lastActual = base;
+        for (int h = 0; h < 24; h++) {
+            LocalDateTime t = actualStart.plusHours(h);
+            timeLabels.add(t.format(labelFmt));
+
+            // 正弦日变化 + 小幅随机噪声
+            double phase = (t.getHour() / 24.0) * 2 * Math.PI;
+            double noise = (rng.nextDouble() - 0.5) * amp * 0.4;
+            double val   = Math.max(0, base + amp * Math.sin(phase) + noise);
+
+            if (h < actualHours) {
+                actual.add(BigDecimal.valueOf(val).setScale(2, RoundingMode.HALF_UP));
+                predicted.add(null);
+                lastActual = val;
+            } else {
+                actual.add(null);
+                // 预测值：在实测末值附近小幅波动，模拟模型输出
+                double predNoise = (rng.nextDouble() - 0.5) * amp * 0.3;
+                double predVal   = Math.max(0, lastActual + predNoise);
+                predicted.add(BigDecimal.valueOf(predVal).setScale(2, RoundingMode.HALF_UP));
+            }
+        }
+
+        WaterQualityDTO.ChartData chart = new WaterQualityDTO.ChartData();
+        chart.setTimeLabels(timeLabels);
+        chart.setActualData(actual);
+        chart.setPredictedData(predicted);
+        chart.setCurrentTimeLabel(now.format(labelFmt));
+        return chart;
     }
 }

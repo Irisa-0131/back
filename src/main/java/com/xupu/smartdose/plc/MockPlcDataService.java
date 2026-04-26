@@ -58,6 +58,7 @@ public class MockPlcDataService implements PlcDataService {
         List<PumpStatus> dbList = pumpStatusMapper.selectList(null);
         if (dbList != null && !dbList.isEmpty()) {
             log.debug("[MockPLC] 读取所有泵状态（来自数据库，共{}台）", dbList.size());
+            dbList.forEach(this::computeFlow);
             return dbList;
         }
         log.debug("[MockPLC] 读取所有泵状态（数据库为空，使用初始默认值）");
@@ -88,6 +89,7 @@ public class MockPlcDataService implements PlcDataService {
         PumpStatus dbStatus = pumpStatusMapper.selectByPumpCode(pumpCode);
         if (dbStatus != null) {
             log.debug("[MockPLC] 读取泵状态: {}（来自数据库）", pumpCode);
+            computeFlow(dbStatus);
             return dbStatus;
         }
         log.debug("[MockPLC] 读取泵状态: {}（数据库无记录，使用默认值）", pumpCode);
@@ -195,6 +197,16 @@ public class MockPlcDataService implements PlcDataService {
         return t;
     }
 
+    private void computeFlow(PumpStatus p) {
+        // 运行中：flow (L/h) ≈ frequency × 2.0，加 ±5% 随机波动；停止时为 0
+        if (p.getRunStatus() != null && p.getRunStatus() == 1 && p.getFrequency() != null) {
+            p.setFlow(jitter(p.getFrequency().doubleValue() * 2.0, 0.05)
+                    .setScale(1, RoundingMode.HALF_UP));
+        } else {
+            p.setFlow(BigDecimal.ZERO);
+        }
+    }
+
     private PumpStatus buildPump(String code, String name,
                                   int runStatus, int faultStatus, double freq) {
         PumpStatus p = new PumpStatus();
@@ -206,6 +218,7 @@ public class MockPlcDataService implements PlcDataService {
         p.setFaultStatus(faultStatus);
         p.setFrequency(BigDecimal.valueOf(freq));
         p.setUpdateTime(LocalDateTime.now());
+        computeFlow(p);
         return p;
     }
 }

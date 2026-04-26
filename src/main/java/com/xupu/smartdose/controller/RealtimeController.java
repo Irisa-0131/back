@@ -8,13 +8,8 @@ import com.xupu.smartdose.dto.WaterStandardDTO;
 import com.xupu.smartdose.plc.PlcDataService;
 import com.xupu.smartdose.service.RealtimeService;
 import lombok.RequiredArgsConstructor;
-import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.RestController;
 
-import java.time.LocalDateTime;
 import java.util.List;
 
 @RestController
@@ -53,15 +48,14 @@ public class RealtimeController {
     }
 
     /**
-     * GET /api/realtime/chart?param=nh3n&startTime=...&endTime=...
-     * 按指定参数和时间范围返回图表数据
+     * GET /api/realtime/chart?param=nh3n&predHours=4
+     * 返回24小时图表数据：左侧 (24-predHours) 小时实测 + 右侧 predHours 小时预测
      */
     @GetMapping("/chart")
     public Result<WaterQualityDTO.ChartData> getChart(
             @RequestParam(defaultValue = "nh3n") String param,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime startTime,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime endTime) {
-        return Result.success(realtimeService.getChartData(param, startTime, endTime));
+            @RequestParam(defaultValue = "4") int predHours) {
+        return Result.success(realtimeService.getChartData(param, predHours));
     }
 
     /**

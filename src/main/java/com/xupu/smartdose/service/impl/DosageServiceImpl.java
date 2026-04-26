@@ -66,73 +66,8 @@ public class DosageServiceImpl implements DosageService {
 
     @Override
     public DosageRecommendationDTO getRecommendation() {
-        // 1. 从 InfluxDB 查下一小时的预测水质值（time > now，取最近一条预测记录）
-        String flux = String.format("""
-                from(bucket: "%s")
-                  |> range(start: now())
-                  |> filter(fn: (r) => r._measurement == "water_quality")
-                  |> filter(fn: (r) => r.water_type == "out")
-                  |> filter(fn: (r) => r.is_predicted == "true")
-                  |> filter(fn: (r) => r._field == "nh3n" or r._field == "tp")
-                  |> first()
-                """, bucket);
-
-        Map<String, BigDecimal> predictedMap = new HashMap<>();
-        String basedOnTime = null;
-
-        try {
-            QueryApi queryApi = influxDBClient.getQueryApi();
-            for (FluxTable table : queryApi.query(flux, org)) {
-                for (FluxRecord r : table.getRecords()) {
-                    String field = r.getField();
-                    BigDecimal val = toBigDecimal(r.getValue());
-                    if (field != null && val != null) {
-                        predictedMap.put(field, val);
-                        if (basedOnTime == null && r.getTime() != null) {
-                            LocalDateTime t = LocalDateTime.ofInstant(r.getTime(), ZoneId.systemDefault());
-                            basedOnTime = t.format(DateTimeFormatter.ofPattern("d日 HH:mm"));
-                        }
-                    }
-                }
-            }
-        } catch (Exception e) {
-            // InfluxDB 不可用或无预测数据时，返回空推荐值
-        }
-
-        BigDecimal predictedNh3n = predictedMap.getOrDefault("nh3n", BigDecimal.ZERO);
-        BigDecimal predictedTp   = predictedMap.getOrDefault("tp",   BigDecimal.ZERO);
-
-        // 2. 从 MySQL 读取各药剂加药系数和泵标定系数
-        List<DosageParam> params = dosageParamMapper.selectList(null);
-        Map<String, BigDecimal> coeffMap     = new HashMap<>();
-        Map<String, BigDecimal> flowCoeffMap = new HashMap<>();
-        for (DosageParam p : params) {
-            coeffMap.put(p.getChemicalType(),
-                    p.getDosingCoefficient() != null ? p.getDosingCoefficient() : BigDecimal.ZERO);
-            flowCoeffMap.put(p.getChemicalType(), p.getFlowCoefficient());
-        }
-
-        // 3. 计算推荐量：碳源/PAM 基于 NH3-N，PAC/Fecl3 基于 TP
-        DosageRecommendationDTO dto = new DosageRecommendationDTO();
-        BigDecimal ty     = calc(predictedNh3n, coeffMap.get("ty"));
-        BigDecimal pac    = calc(predictedTp,   coeffMap.get("pac"));
-        BigDecimal fecl3  = calc(predictedTp,   coeffMap.get("fecl3"));
-        BigDecimal pamNeg = calc(predictedNh3n, coeffMap.get("pam_neg"));
-        BigDecimal pamPos = calc(predictedNh3n, coeffMap.get("pam_pos"));
-        dto.setTy(ty); dto.setPac(pac); dto.setFecl3(fecl3);
-        dto.setPamNeg(pamNeg); dto.setPamPos(pamPos);
-
-        // 4. 推荐频率 = 推荐流量 / 泵标定系数
-        dto.setTyHz    (toHz(ty,     flowCoeffMap.get("ty")));
-        dto.setPacHz   (toHz(pac,    flowCoeffMap.get("pac")));
-        dto.setFecl3Hz (toHz(fecl3,  flowCoeffMap.get("fecl3")));
-        dto.setPamNegHz(toHz(pamNeg, flowCoeffMap.get("pam_neg")));
-        dto.setPamPosHz(toHz(pamPos, flowCoeffMap.get("pam_pos")));
-
-        dto.setPredictedNh3n(predictedNh3n);
-        dto.setPredictedTp(predictedTp);
-        dto.setBasedOnTime(basedOnTime);
-        return dto;
+        // TODO: InfluxDB 就绪后删除此行，启用下方真实查询逻辑
+        return buildMockRecommendation();
     }
 
     private BigDecimal calc(BigDecimal predicted, BigDecimal coeff) {
@@ -241,6 +176,35 @@ public class DosageServiceImpl implements DosageService {
     public void savePumpAreaDelay(int area, int startDelay, int stopDelay) {
         upsertConfig("pump_start_delay_" + area, String.valueOf(startDelay));
         upsertConfig("pump_stop_delay_"  + area, String.valueOf(stopDelay));
+    }
+
+    private DosageRecommendationDTO buildMockRecommendation() {
+        BigDecimal predictedNh3n = new BigDecimal("0.85");
+        BigDecimal predictedTp   = new BigDecimal("0.22");
+
+        BigDecimal ty     = new BigDecimal("8.50");
+        BigDecimal pac    = new BigDecimal("4.40");
+        BigDecimal fecl3  = new BigDecimal("6.60");
+        BigDecimal pamNeg = new BigDecimal("2.10");
+        BigDecimal pamPos = new BigDecimal("1.70");
+
+        DosageRecommendationDTO dto = new DosageRecommendationDTO();
+        dto.setTy(ty);
+        dto.setPac(pac);
+        dto.setFecl3(fecl3);
+        dto.setPamNeg(pamNeg);
+        dto.setPamPos(pamPos);
+        dto.setTyHz    (new BigDecimal("28.3"));
+        dto.setPacHz   (new BigDecimal("14.7"));
+        dto.setFecl3Hz (new BigDecimal("22.0"));
+        dto.setPamNegHz(new BigDecimal("7.0"));
+        dto.setPamPosHz(new BigDecimal("5.7"));
+        dto.setPredictedNh3n(predictedNh3n);
+        dto.setPredictedTp(predictedTp);
+        LocalDateTime nextHour = LocalDateTime.now().plusHours(1)
+                .withMinute(0).withSecond(0).withNano(0);
+        dto.setBasedOnTime(nextHour.format(DateTimeFormatter.ofPattern("d日 HH:mm")));
+        return dto;
     }
 
     private void upsertConfig(String key, String value) {
